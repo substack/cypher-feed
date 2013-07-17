@@ -1,11 +1,17 @@
+var DEBUG = true;
+
 var levelQuery = require('level-query');
 var merkle = require('level-merkle');
 var sublevel = require('level-sublevel');
+var liveStream = require('level-live-stream');
 
 var hyperquest = require('hyperquest');
 var net = require('net');
 
 var through = require('through');
+var duplexer = require('duplexer');
+var split = require('split');
+var stringify = require('json-stable-stringify');
 
 var shasum = require('shasum');
 var subdir = require('subdir');
@@ -17,12 +23,14 @@ module.exports = Feed;
 
 function Feed (db) {
     if (!(this instanceof Feed)) return new Feed(db);
-    db = this.db = sublevel(db);
+    db = sublevel(db);
+    
+    this.db = db;
+    this.connections = {};
     
     this.merkle = merkle(db, db.sublevel('merkle'));
     this.following = db.sublevel('following');
     this.bootstrap = db.sublevel('bootstrap');
-    this.connections = {};
 }
 
 inherits(Feed, EventEmitter);
@@ -122,14 +130,43 @@ Feed.prototype.createStream = function () {
             switcher.change(1);
         }))
     ;
-    var putStream = this.createPutStream();
-    var switcher = switchStream([ stream, putStream ]);
+    var live = this.createLiveDuplex();
+    var switcher = switchStream([ stream, live ]);
     return switcher;
 };
 
+Feed.prototype.createLiveDuplex = function () {
+    var live = liveStream(this.db, { old: false })
+        .pipe(through(function (row) { this.queue(stringify(row)) }))
+    ;
+    var put = this.createPutStream();
+    put.on('error', function (err) {
+        if (DEBUG) console.error(err);
+        dup.end();
+    });
+    var dup = duplexer(put, live);
+    return dup;
+};
+
 Feed.prototype.createPutStream = function () {
-    var stream = through();
-    return stream;
+    var self = this;
+    var db = self.db;
+    
+    var sp = split(JSON.parse);
+    
+    sp.pipe(through(function (row) {
+        if (!row || typeof row !== 'object') return;
+        // sha sum didn't match, reject and close the connection
+        if (row.key !== shasum(row.value)) {
+            sp.emit('error', 'shasum mismatch for key ' + row.key);
+        }
+        
+        db.get(row.key, function (err, value) {
+            if (!value) db.put(row.key, row.value);
+        });
+    }));
+    
+    return sp;
 };
 
 function switchStream (streams) {
@@ -148,9 +185,8 @@ function switchStream (streams) {
         }
     });
     
-    stream.change = function (ix) {
-        index = ix;
-    };
+    stream.change = function (ix) { index = ix };
+    
     return stream;
     
     function write (buf) {
