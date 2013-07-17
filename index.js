@@ -1,8 +1,8 @@
 var levelQuery = require('level-query');
 var subdir = require('subdir');
+var merkle = require('level-merkle');
+
 var noCache = require('./lib/no_cache.js');
-var url = require('url');
-var qs = require('querystring');
 
 module.exports = function (db, opts) {
     if (!opts) opts = {};
@@ -10,6 +10,8 @@ module.exports = function (db, opts) {
     if (!/^\//.test(prefix)) prefix = '/' + prefix;
     
     var query = levelQuery(db);
+    var replicator = merkle(db, 'merkle');
+    
     var feed = function (req, res) {
         if (req.method === 'GET') {
             res.setHeader('content-type', 'application/json');
@@ -42,7 +44,7 @@ module.exports = function (db, opts) {
     };
     
     feed.createStream = function () {
-        
+        return replicator.createStream();
     };
     
     return feed;
