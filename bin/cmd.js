@@ -8,6 +8,7 @@ process.stdout.on('error', function () {});
 var argv = require('minimist')(process.argv.slice(2));
 if (argv.h || argv.help || argv._[0] === 'help') return help();
 
+var port = argv.port || argv.p || 41963;
 var home = process.env.HOME || process.env.USERPROFILE;
 var dbfile = argv.db || path.join(home, '.config', 'cypher-feed', 'data');
 
@@ -26,8 +27,8 @@ if (cmd === 'start') {
     var feed = require('../')(db);
     
     var server = feed.createLocalServer();
-    server.listen(41963, '127.0.0.1');
-    console.log('listening on 127.0.0.1:41963');
+    server.listen(port, '127.0.0.1');
+    console.log('listening on 127.0.0.1:' + port);
 }
 else if (cmd === 'publish') {
     var file = argv._[1];
@@ -43,7 +44,8 @@ else if (cmd === 'publish') {
     
     var type = argv.type || argv.t || 'file';
     
-    var hq = hyperquest.put('http://localhost:41963/publish?' + qs.stringify({
+    var u = 'http://localhost:' + port + '/publish?';
+    var hq = hyperquest.put(u + qs.stringify({
         encoding: encoding,
         raw: Boolean(argv.raw || argv.r),
         type: type,
@@ -54,7 +56,8 @@ else if (cmd === 'publish') {
     fs.createReadStream(file).pipe(hq);
 }
 else if (cmd === 'list' || cmd === 'query') {
-    var hq = hyperquest('http://localhost:41963/query?' + qs.stringify(argv));
+    var u = 'http://localhost:41963/query?';
+    var hq = hyperquest(u + qs.stringify(argv));
     hq.pipe(process.stdout);
 }
 else help()

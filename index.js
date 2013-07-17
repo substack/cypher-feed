@@ -180,51 +180,53 @@ Feed.prototype.createPutStream = function () {
 };
 
 Feed.prototype.createLocalServer = function () {
+    return http.createServer(this.handle.bind(this));
+};
+
+Feed.prototype.handle = function (req, res) {
     var self = this;
-    return http.createServer(function (req, res) {
-        var u = url.parse(req.url);
-        var params = qs.parse(u.search);
-        
-        if (req.method === 'PUT' && u.pathname === '/publish') {
-            req.pipe(concat(function (body) {
-                if (params.encoding === 'json') {
-                    try { var doc = JSON.parse(body) }
-                    catch (err) {
-                        res.statusCode = 400;
-                        res.end(err + '\n');
-                        return;
-                    }
+    var u = url.parse(req.url);
+    var params = qs.parse(u.search);
+    
+    if (req.method === 'PUT' && u.pathname === '/publish') {
+        req.pipe(concat(function (body) {
+            if (params.encoding === 'json') {
+                try { var doc = JSON.parse(body) }
+                catch (err) {
+                    res.statusCode = 400;
+                    res.end(err + '\n');
+                    return;
                 }
-                else if (params.raw) {
-                    doc = body.toString('utf8');
+            }
+            else if (params.raw) {
+                doc = body.toString('utf8');
+            }
+            else {
+                var enc = params.encoding || 'utf8';
+                doc = { body: body.toString(enc) };
+                if (params.type) doc.type = params.type;
+                if (params.encoding) doc.encoding = params.encoding;
+                if (params.filename) doc.filename = params.filename;
+            }
+            self.publish(doc, function (err, hash) {
+                if (err) {
+                    res.statusCode = 500;
+                    res.end(err + '\n');
                 }
-                else {
-                    var enc = params.encoding || 'utf8';
-                    doc = { body: body.toString(enc) };
-                    if (params.type) doc.type = params.type;
-                    if (params.encoding) doc.encoding = params.encoding;
-                    if (params.filename) doc.filename = params.filename;
-                }
-                self.publish(doc, function (err, hash) {
-                    if (err) {
-                        res.statusCode = 500;
-                        res.end(err + '\n');
-                    }
-                    else res.end(hash + '\n');
-                });
-            }));
-        }
-        else if (req.method === 'GET' && u.pathname === '/query') {
-            res.setHeader('content-type', 'application/json');
-            var q = self.query(req.url);
-            q.on('error', function (err) { res.end(err + '\n') });
-            q.pipe(res);
-        }
-        else {
-            res.statusCode = 404;
-            res.end('not found\n');
-        }
-    });
+                else res.end(hash + '\n');
+            });
+        }));
+    }
+    else if (req.method === 'GET' && u.pathname === '/query') {
+        res.setHeader('content-type', 'application/json');
+        var q = self.query(req.url);
+        q.on('error', function (err) { res.end(err + '\n') });
+        q.pipe(res);
+    }
+    else {
+        res.statusCode = 404;
+        res.end('not found\n');
+    }
 };
 
 function switchStream (streams) {
