@@ -122,7 +122,7 @@ Feed.prototype.join = function () {
 
 Feed.prototype.publish = function (doc, cb) {
     var hash = shasum(doc);
-    db.put(hash, doc, function (err) {
+    this.db.put(hash, doc, function (err) {
         if (!cb) return;
         if (err) cb(err)
         else cb(null, hash);
