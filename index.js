@@ -1,51 +1,120 @@
 var levelQuery = require('level-query');
-var subdir = require('subdir');
 var merkle = require('level-merkle');
+var sublevel = require('level-sublevel');
+
+var hyperquest = require('hyperquest');
+var net = require('net');
+
+var through = require('through');
+var shasum = require('shasum');
+var subdir = require('subdir');
+var inherits = require('inherits');
 
 var noCache = require('./lib/no_cache.js');
 
-module.exports = function (db, opts) {
-    if (!opts) opts = {};
-    var prefix = opts.prefix || '/feed';
-    if (!/^\//.test(prefix)) prefix = '/' + prefix;
+module.exports = Feed;
+
+function Feed (db) {
+    if (!(this instanceof Feed)) return new Feed(db);
+    db = this.db = sublevel(db);
     
-    var query = levelQuery(db);
-    var replicator = merkle(db, 'merkle');
+    this.merkle = merkle(db, db.sublevel('merkle'));
+    this.following = db.sublevel('following');
+    this.bootstrap = db.sublevel('bootstrap');
+    this.connections = {};
+}
+
+inherits(Feed, EventEmitter);
+
+Feed.prototype.connect = function (addr, cb) {
+    var self = this;
+    var stream;
+    if (/^[^:]+:\d+$/.test(addr)) {
+        var parts = addr.split(':');
+        stream = net.connect(parseInt(parts[1]), parts[0]);
+        stream.on('connect', ready);
+    }
+    else {
+        stream = hyperquest.post(addr);
+        stream.on('response', function () {
+            if (cb) cb(null, stream);
+            cb = function () {};
+        });
+    }
     
-    var feed = function (req, res) {
-        if (req.method === 'GET') {
-            res.setHeader('content-type', 'application/json');
-            noCache(res);
-            var q = query(req.url);
-            q.on('error', function (err) { res.end(err + '\n') });
-            q.pipe(res);
-        }
-        else if (req.method === 'POST') {
-            res.setHeader('content-type', 'application/json');
-            noCache(res);
-            req.pipe(feed.createStream()).pipe(res);
-        }
-        else {
-            res.statuSCode = 404;
-            res.end('not found\n');
-        }
-    };
+    self.connections[addr] = stream;
     
-    feed.test = function (u) {
-        var p = u.split('?')[0];
-        return p === prefix
-            || p === prefix + '.json'
-            || subdir(prefix, p)
-        ;
-    };
+    stream.on('error', function (err) {
+        onend();
+        
+        if (cb) cb(err);
+        cb = function () {};
+    });
     
-    feed.createReadStream = function (params) {
-        return query(params);
-    };
+    stream.pipe(through(function () {}, onend);
     
-    feed.createStream = function () {
-        return replicator.createStream();
-    };
+    function onend () {
+        delete self.connections[addr];
+        self.emit('disconnect', addr);
+    }
     
-    return feed;
+    function ready () {
+        if (cb) cb(null, stream);
+        cb = function () {};
+        self.emit('connect', addr);
+        
+        var sync = self.createStream();
+        sync.pipe(stream).pipe(sync);
+        
+        sync.on('sync', function () {
+            self.bootstrap.put(addr, {
+                last: Date.now()
+            });
+            self.emit('sync', addr);
+        });
+    }
+};
+
+Feed.prototype.join = function () {
+    var self = this;
+    if (self._joining) return;
+    self._joining = true;
+    
+    var rows = [];
+    self.bootstrap.createReadStream().pipe(through(write, end));
+    
+    self.on('disconnect', function () {
+        setTimeout(next, 1000);
+    });
+    
+    function write (row) { rows.push(row) }
+    
+    function end () {
+        var max = Math.min(rows.length, 5);
+        for (var i = 0; i < max; i++) next();
+    }
+    
+    function next () {
+        var avail = rows.filter(function (row) {
+            return !self.connections[row.key];
+        });
+        if (avail.length === 0) return;
+        
+        var ix = Math.floor(Math.random() * avail.length);
+        var addr = avail[ix].key;
+        self.connect(addr);
+    }
+};
+
+Feed.prototype.publish = function (doc) {
+    var hash = shasum(doc);
+    db.put(hash, doc);
+};
+
+Feed.prototype.follow = function (name, pubkey) {
+    this.following.put(name, pubkey);
+};
+
+Feed.prototype.createStream = function () {
+    return this.merkle.createStream();
 };
