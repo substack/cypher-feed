@@ -6,6 +6,7 @@ var hyperquest = require('hyperquest');
 var net = require('net');
 
 var through = require('through');
+
 var shasum = require('shasum');
 var subdir = require('subdir');
 var inherits = require('inherits');
@@ -116,5 +117,47 @@ Feed.prototype.follow = function (name, pubkey) {
 };
 
 Feed.prototype.createStream = function () {
-    return this.merkle.createStream();
+    var stream = this.merkle.createStream()
+        .pipe(through(null, function () {
+            switcher.change(1);
+        }))
+    ;
+    var putStream = this.createPutStream();
+    var switcher = switchStream([ stream, putStream ]);
+    return switcher;
 };
+
+Feed.prototype.createPutStream = function () {
+    var stream = through();
+    return stream;
+};
+
+function switchStream (streams) {
+    var stream = through(write, end);
+    var index = 0;
+    
+    streams.forEach(function (s, ix) {
+        s.pipe(through(write, end));
+        
+        function write (buf) {
+            if (index === ix) stream.queue(buf);
+        }
+        
+        function end () {
+            if (index === ix) stream.queue(null);
+        }
+    });
+    
+    stream.change = function (ix) {
+        index = ix;
+    };
+    return stream;
+    
+    function write (buf) {
+        streams[index].write(buf);
+    }
+    
+    function end () {
+        streams[index].end(buf);
+    }
+}
