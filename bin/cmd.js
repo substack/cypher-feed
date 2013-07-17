@@ -25,6 +25,7 @@ if (cmd === 'start') {
     var sublevel = require('level-sublevel');
     var db = sublevel(levelup(dbfile, { encoding: 'json' }));
     var feed = require('../')(db);
+    //feed.join();
     
     var server = feed.createLocalServer();
     server.listen(port, '127.0.0.1');
@@ -56,8 +57,13 @@ else if (cmd === 'publish') {
     fs.createReadStream(file).pipe(hq);
 }
 else if (cmd === 'list' || cmd === 'query') {
-    var u = 'http://localhost:41963/query?';
-    var hq = hyperquest(u + qs.stringify(argv));
+    var u = 'http://localhost:' + port + '/query?';
+    hyperquest(u + qs.stringify(argv)).pipe(process.stdout);
+}
+else if (cmd === 'connect') {
+    var u = 'http://localhost:' + port + '/connect?';
+    var addr = argv._[1];
+    var hq = hyperquest(u + qs.stringify({ addr: addr }));
     hq.pipe(process.stdout);
 }
 else help()

@@ -50,10 +50,7 @@ Feed.prototype.connect = function (addr, cb) {
     }
     else {
         stream = hyperquest.post(addr);
-        stream.on('response', function () {
-            if (cb) cb(null, stream);
-            cb = function () {};
-        });
+        stream.on('response', ready);
     }
     
     self.connections[addr] = stream;
@@ -222,6 +219,15 @@ Feed.prototype.handle = function (req, res) {
         var q = self.query(req.url);
         q.on('error', function (err) { res.end(err + '\n') });
         q.pipe(res);
+    }
+    else if (req.method === 'GET' && u.pathname === '/connect') {
+        self.connect(function (err) {
+            if (err) {
+                res.statusCode = 404; // todo: resource unvailable code
+                res.end(err + '\n');
+            }
+            else res.end('ok\n');
+        });
     }
     else {
         res.statusCode = 404;
