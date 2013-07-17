@@ -21,8 +21,7 @@ var stringify = require('json-stable-stringify');
 var shasum = require('shasum');
 var subdir = require('subdir');
 var inherits = require('inherits');
-
-var noCache = require('./lib/no_cache.js');
+var EventEmitter = require('events').EventEmitter;
 
 module.exports = Feed;
 
@@ -36,6 +35,7 @@ function Feed (db) {
     this.merkle = merkle(db, db.sublevel('merkle'));
     this.following = db.sublevel('following');
     this.bootstrap = db.sublevel('bootstrap');
+    this.query = levelQuery(db);
 }
 
 inherits(Feed, EventEmitter);
@@ -65,7 +65,7 @@ Feed.prototype.connect = function (addr, cb) {
         cb = function () {};
     });
     
-    stream.pipe(through(function () {}, onend);
+    stream.pipe(through(function () {}, onend));
     
     function onend () {
         delete self.connections[addr];
@@ -214,15 +214,11 @@ Feed.prototype.createLocalServer = function () {
                 });
             }));
         }
-        else if (req.method === 'GET' && u.pathname === '/live') {
+        else if (req.method === 'GET' && u.pathname === '/query') {
             res.setHeader('content-type', 'application/json');
-            
-            liveStream(this.db, { old: false })
-                .pipe(through(function (row) {
-                    this.queue(stringify(row))
-                }))
-                .pipe(res)
-            ;
+            var q = self.query(req.url);
+            q.on('error', function (err) { res.end(err + '\n') });
+            q.pipe(res);
         }
         else {
             res.statusCode = 404;

@@ -1,5 +1,6 @@
 var path = require('path');
 var os = require('os');
+var fs = require('fs');
 
 process.stdout.on('error', function () {});
 
@@ -17,7 +18,7 @@ var hyperquest = require('hyperquest');
 var defined = require('defined');
 
 var levelup = require('levelup');
-var sublevel = require('sublevel');
+var sublevel = require('level-sublevel');
 var db = sublevel(levelup(dbfile, { encoding: 'json' }));
 var feed = require('../')(db);
 
@@ -25,7 +26,7 @@ var cmd = argv._[0];
 
 if (cmd === 'start') {
     var server = feed.createLocalServer();
-    if (/^win/i.test(os.platform()) {
+    if (/^win/i.test(os.platform())) {
         server.listen(41963, '127.0.0.1');
         console.log('listening on 127.0.0.1:41963');
     }
@@ -60,7 +61,11 @@ else if (cmd === 'publish') {
     
     fs.createReadStream(argv._[1]).pipe(hq);
 }
-else if (cmd === '') {
+else if (cmd === 'list' || cmd === 'query') {
+    var hq = hyperquest(serverOpts({
+        method: 'GET',
+        path: '/query' + qs.stringify(argv)
+    })).pipe(process.stdout);;
 }
 else help()
 
@@ -70,7 +75,7 @@ function help () {
 
 function serverOpts (opts) {
     if (!opts) opts = {};
-    if (/^win/i.test(os.platform()) {
+    if (/^win/i.test(os.platform())) {
         opts.host = '127.0.0.1';
         opts.port = 41963;
     }
