@@ -1,6 +1,7 @@
 var path = require('path');
 var os = require('os');
 var fs = require('fs');
+var qs = require('querystring');
 
 process.stdout.on('error', function () {});
 
@@ -9,7 +10,6 @@ if (argv.h || argv.help || argv._[0] === 'help') return help();
 
 var home = process.env.HOME || process.env.USERPROFILE;
 var dbfile = argv.db || path.join(home, '.config', 'cypher-feed', 'data');
-var sockfile = argv.sock || path.join(home, '.config', 'cypher-feed', 'sock');
 
 var mkdirp = require('mkdirp');
 mkdirp.sync(dbfile);
@@ -17,26 +17,20 @@ mkdirp.sync(dbfile);
 var hyperquest = require('hyperquest');
 var defined = require('defined');
 
-var levelup = require('levelup');
-var sublevel = require('level-sublevel');
-var db = sublevel(levelup(dbfile, { encoding: 'json' }));
-var feed = require('../')(db);
-
 var cmd = argv._[0];
 
 if (cmd === 'start') {
+    var levelup = require('levelup');
+    var sublevel = require('level-sublevel');
+    var db = sublevel(levelup(dbfile, { encoding: 'json' }));
+    var feed = require('../')(db);
+    
     var server = feed.createLocalServer();
-    if (/^win/i.test(os.platform())) {
-        server.listen(41963, '127.0.0.1');
-        console.log('listening on 127.0.0.1:41963');
-    }
-    else {
-        server.listen(sockfile);
-        console.log('listening on ' + sockfile);
-    }
+    server.listen(41963, '127.0.0.1');
+    console.log('listening on 127.0.0.1:41963');
 }
 else if (cmd === 'publish') {
-    var file = argv._[0];
+    var file = argv._[1];
     if (!file) {
         console.error('usage: cypher-feed publish FILE');
         return process.exit(1);
@@ -49,38 +43,22 @@ else if (cmd === 'publish') {
     
     var type = argv.type || argv.t || 'file';
     
-    var hq = hyperquest(serverOpts({
-        method: 'PUT',
-        path: '/publish?' + qs.stringify({
-            encoding: encoding,
-            raw: Boolean(argv.raw || argv.r),
-            type: type,
-            filename: argv.filename || argv.f
-        })
-    })).pipe(process.stdout);;
+    var hq = hyperquest.put('http://localhost:41963/publish?' + qs.stringify({
+        encoding: encoding,
+        raw: Boolean(argv.raw || argv.r),
+        type: type,
+        filename: defined(argv.filename, argv.f, path.basename(file))
+    }));
+    hq.pipe(process.stdout);
     
-    fs.createReadStream(argv._[1]).pipe(hq);
+    fs.createReadStream(file).pipe(hq);
 }
 else if (cmd === 'list' || cmd === 'query') {
-    var hq = hyperquest(serverOpts({
-        method: 'GET',
-        path: '/query' + qs.stringify(argv)
-    })).pipe(process.stdout);;
+    var hq = hyperquest('http://localhost:41963/query?' + qs.stringify(argv));
+    hq.pipe(process.stdout);
 }
 else help()
 
 function help () {
     fs.createReadStream(__dirname + '/usage.txt').pipe(process.stdout);
-}
-
-function serverOpts (opts) {
-    if (!opts) opts = {};
-    if (/^win/i.test(os.platform())) {
-        opts.host = '127.0.0.1';
-        opts.port = 41963;
-    }
-    else {
-        opts.socketPath = sockfie;
-    }
-    return opts
 }
