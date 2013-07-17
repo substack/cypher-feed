@@ -20,16 +20,23 @@ var defined = require('defined');
 
 var cmd = argv._[0];
 
-if (cmd === 'start') {
+if (cmd === 'start' || cmd === 'server') {
     var levelup = require('levelup');
     var sublevel = require('level-sublevel');
     var db = sublevel(levelup(dbfile, { encoding: 'json' }));
     var feed = require('../')(db);
     //feed.join();
     
-    var server = feed.createLocalServer();
-    server.listen(port, '127.0.0.1');
-    console.log('listening on 127.0.0.1:' + port);
+    if (cmd === 'start') {
+        var server = feed.createLocalServer();
+        server.listen(port, '127.0.0.1');
+        console.log('local server listening on 127.0.0.1:' + port);
+    }
+    else {
+        var server = feed.createServer();
+        server.listen(port);
+        console.log('public server listening on 0.0.0.0:' + port);
+    }
 }
 else if (cmd === 'publish') {
     var file = argv._[1];

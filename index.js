@@ -50,7 +50,7 @@ Feed.prototype.connect = function (addr, cb) {
     }
     else {
         stream = hyperquest.post(addr);
-        stream.on('response', ready);
+        ready();
     }
     
     self.connections[addr] = stream;
@@ -133,18 +133,21 @@ Feed.prototype.follow = function (name, pubkey) {
 
 Feed.prototype.createStream = function () {
     var stream = this.merkle.createStream()
-        .pipe(through(null, function () {
-            switcher.change(1);
-        }))
+        .pipe(through(null, end))
     ;
     var live = this.createLiveDuplex();
     var switcher = switchStream([ stream, live ]);
     return switcher;
+    
+    function end () { switcher.change(1) }
 };
 
 Feed.prototype.createLiveDuplex = function () {
     var live = liveStream(this.db, { old: false })
-        .pipe(through(function (row) { this.queue(stringify(row)) }))
+        .pipe(through(function (row) {
+console.dir(row);
+            this.queue(stringify(row))
+        }))
     ;
     var put = this.createPutStream();
     put.on('error', function (err) {
@@ -177,13 +180,17 @@ Feed.prototype.createPutStream = function () {
 };
 
 Feed.prototype.createLocalServer = function () {
-    return http.createServer(this.handle.bind(this));
+    return http.createServer(this.handleLocal.bind(this));
 };
 
-Feed.prototype.handle = function (req, res) {
+Feed.prototype.createServer = function () {
+    return http.createServer(this.handlePublic.bind(this));
+};
+
+Feed.prototype.handleLocal = function (req, res) {
     var self = this;
     var u = url.parse(req.url);
-    var params = qs.parse(u.search);
+    var params = qs.parse(u.search.replace(/^\?/, ''));
     
     if (req.method === 'PUT' && u.pathname === '/publish') {
         req.pipe(concat(function (body) {
@@ -216,18 +223,36 @@ Feed.prototype.handle = function (req, res) {
     }
     else if (req.method === 'GET' && u.pathname === '/query') {
         res.setHeader('content-type', 'application/json');
+        res.setTimeout(0);
         var q = self.query(req.url);
         q.on('error', function (err) { res.end(err + '\n') });
         q.pipe(res);
     }
     else if (req.method === 'GET' && u.pathname === '/connect') {
-        self.connect(function (err) {
+        if (!params.addr) {
+            res.statusCode = 400;
+            res.end('required parameter "addr" missing\n');
+            return;
+        }
+        self.connect(params.addr, function (err) {
             if (err) {
                 res.statusCode = 404; // todo: resource unvailable code
                 res.end(err + '\n');
             }
             else res.end('ok\n');
         });
+    }
+    else {
+        res.statusCode = 404;
+        res.end('not found\n');
+    }
+};
+
+Feed.prototype.handlePublic = function (req, res) {
+    var self = this;
+    if (DEBUG) console.log(req.method, req.url);
+    if (req.method === 'POST' && req.url === '/') {
+        req.pipe(self.createStream()).pipe(res);
     }
     else {
         res.statusCode = 404;
@@ -260,6 +285,6 @@ function switchStream (streams) {
     }
     
     function end () {
-        streams[index].end(buf);
+        streams[index].end();
     }
 }
