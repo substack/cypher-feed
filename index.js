@@ -7,8 +7,13 @@ var liveStream = require('level-live-stream');
 
 var hyperquest = require('hyperquest');
 var net = require('net');
+var http = require('http');
+
+var url = require('url');
+var qs = require('querystring');
 
 var through = require('through');
+var concat = require('concat-stream');
 var duplexer = require('duplexer');
 var split = require('split');
 var stringify = require('json-stable-stringify');
@@ -115,9 +120,14 @@ Feed.prototype.join = function () {
     }
 };
 
-Feed.prototype.publish = function (doc) {
+Feed.prototype.publish = function (doc, cb) {
     var hash = shasum(doc);
-    db.put(hash, doc);
+    db.put(hash, doc, function (err) {
+        if (!cb) return;
+        if (err) cb(err)
+        else cb(null, hash);
+    });
+    return hash;
 };
 
 Feed.prototype.follow = function (name, pubkey) {
@@ -167,6 +177,58 @@ Feed.prototype.createPutStream = function () {
     }));
     
     return sp;
+};
+
+Feed.prototype.createLocalServer = function () {
+    var self = this;
+    return http.createServer(function (req, res) {
+        var u = url.parse(req.url);
+        var params = qs.parse(u.search);
+        
+        if (req.method === 'PUT' && u.pathname === '/publish') {
+            req.pipe(concat(function (body) {
+                if (params.encoding === 'json') {
+                    try { var doc = JSON.parse(body) }
+                    catch (err) {
+                        res.statusCode = 400;
+                        res.end(err + '\n');
+                        return;
+                    }
+                }
+                else if (params.raw) {
+                    doc = body.toString('utf8');
+                }
+                else {
+                    var enc = params.encoding || 'utf8';
+                    doc = { body: body.toString(enc) };
+                    if (params.type) doc.type = params.type;
+                    if (params.encoding) doc.encoding = params.encoding;
+                    if (params.filename) doc.filename = params.filename;
+                }
+                self.publish(doc, function (err, hash) {
+                    if (err) {
+                        res.statusCode = 500;
+                        res.end(err + '\n');
+                    }
+                    else res.end(hash + '\n');
+                });
+            }));
+        }
+        else if (req.method === 'GET' && u.pathname === '/live') {
+            res.setHeader('content-type', 'application/json');
+            
+            liveStream(this.db, { old: false })
+                .pipe(through(function (row) {
+                    this.queue(stringify(row))
+                }))
+                .pipe(res)
+            ;
+        }
+        else {
+            res.statusCode = 404;
+            res.end('not found\n');
+        }
+    });
 };
 
 function switchStream (streams) {
