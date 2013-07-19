@@ -39,3 +39,15 @@ usage: cypher-feed COMMAND ...
   cypher-feed list
 
 ```
+
+# install
+
+With [npm](https://npmjs.org) do:
+
+```
+npm install -g cypher-feed
+```
+
+# license
+
+MIT
