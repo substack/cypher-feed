@@ -16,7 +16,7 @@ var through = require('through');
 var concat = require('concat-stream');
 var duplexer = require('duplexer');
 var split = require('split');
-var stringify = require('json-stable-stringify');
+var switchStream = require('switch-stream');
 
 var shasum = require('shasum');
 var subdir = require('subdir');
@@ -132,29 +132,33 @@ Feed.prototype.follow = function (name, pubkey) {
 };
 
 Feed.prototype.createStream = function () {
-    var stream = this.merkle.createStream()
-        .pipe(through(null, end))
-    ;
+    var stream = this.merkle.createStream();
+    stream.on('sync', function () {
+        switcher.emit('sync');
+        switcher.set(live);
+    });
     var live = this.createLiveDuplex();
-    var switcher = switchStream([ stream, live ]);
-    return switcher;
+    var splitter = split(JSON.parse);
     
-    function end () { switcher.change(1) }
+    var stringifier = through(function (row) {
+        this.queue(JSON.stringify(row) + '\n');
+    });
+     
+    var switcher = switchStream(stream);
+    splitter.pipe(switcher).pipe(stringifier);
+    
+    var dup = duplexer(splitter, stringifier);
+    splitter.on('error', dup.emit.bind(dup, 'error'));
+    live.on('error', dup.emit.bind(dup, 'error'));
+    return dup;
 };
 
 Feed.prototype.createLiveDuplex = function () {
-    var live = liveStream(this.db, { old: false })
-        .pipe(through(function (row) {
-console.dir(row);
-            this.queue(stringify(row))
-        }))
-    ;
+    var live = liveStream(this.db, { old: false });
     var put = this.createPutStream();
-    put.on('error', function (err) {
-        if (DEBUG) console.error(err);
-        dup.end();
-    });
     var dup = duplexer(put, live);
+    put.on('error', dup.emit.bind(dup, 'error'));
+    live.on('error', dup.emit.bind(dup, 'error'));
     return dup;
 };
 
@@ -162,9 +166,7 @@ Feed.prototype.createPutStream = function () {
     var self = this;
     var db = self.db;
     
-    var sp = split(JSON.parse);
-    
-    sp.pipe(through(function (row) {
+    return through(function (row) {
         if (!row || typeof row !== 'object') return;
         // sha sum didn't match, reject and close the connection
         if (row.key !== shasum(row.value)) {
@@ -174,9 +176,7 @@ Feed.prototype.createPutStream = function () {
         db.get(row.key, function (err, value) {
             if (!value) db.put(row.key, row.value);
         });
-    }));
-    
-    return sp;
+    });
 };
 
 Feed.prototype.createLocalServer = function () {
@@ -259,32 +259,3 @@ Feed.prototype.handlePublic = function (req, res) {
         res.end('not found\n');
     }
 };
-
-function switchStream (streams) {
-    var stream = through(write, end);
-    var index = 0;
-    
-    streams.forEach(function (s, ix) {
-        s.pipe(through(write, end));
-        
-        function write (buf) {
-            if (index === ix) stream.queue(buf);
-        }
-        
-        function end () {
-            if (index === ix) stream.queue(null);
-        }
-    });
-    
-    stream.change = function (ix) { index = ix };
-    
-    return stream;
-    
-    function write (buf) {
-        streams[index].write(buf);
-    }
-    
-    function end () {
-        streams[index].end();
-    }
-}
