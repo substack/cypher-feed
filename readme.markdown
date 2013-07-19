@@ -1,0 +1,41 @@
+# cypher-feed
+
+content-addressable distributed publishing
+
+# status
+
+works: start, publish, list
+
+partly works: connect
+
+doesn't work: follow, signing, identities
+
+# usage
+
+```
+usage: cypher-feed COMMAND ...
+
+  cypher-feed start
+  
+  cypher-feed publish FILE OPTIONS
+  
+    Publish FILE. Use "-" for stdin.
+    
+    -t, --type      Set the type of document. Default: file
+    
+    -e, --encoding  Set the encoding of the document. Default: utf8
+                    "json" is a special encoding to write contents directly.
+                    If FILE ends in ".json", json encoding is implicitly set.
+    
+    -f, --filename  Set a filename for the FILE. By default the basename of FILE
+                    is used.
+    
+    -r, --raw       Publish a file without setting any metadata.
+  
+  cypher-feed connect { host:port | url }
+
+  cypher-feed follow name pubkey
+
+  cypher-feed list
+
+```

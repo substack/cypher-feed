@@ -1,0 +1,28 @@
+{
+  "name": "cypher-feed",
+  "version": "0.0.0",
+  "description": "content-addressable distributed publishing",
+  "main": "index.js",
+  "bin": {
+    "cypher-feed": "bin/cmd.js"
+  },
+  "dependencies": {
+    "level": "~0.10.0",
+    "level-merkle": "~0.0.8",
+    "level-sublevel": "~4.8.0",
+    "level-query": "~0.2.0",
+    "level-live-stream": "~1.4.4",
+    "concat-stream": "~1.0.0",
+    "duplexer": "~0.1.1",
+    "hyperquest": "~0.1.7",
+    "inherits": "~2.0.0",
+    "minimist": "~0.0.1",
+    "mkdirp": "~0.3.5",
+    "defined": "~0.0.0",
+    "shasum": "~0.0.3",
+    "split": "~0.2.5",
+    "subdir": "~0.0.3",
+    "through": "~2.3.4",
+    "switch-stream": "~0.0.0"
+  }
+}
